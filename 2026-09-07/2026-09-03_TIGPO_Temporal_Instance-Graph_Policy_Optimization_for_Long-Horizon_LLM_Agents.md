@@ -1,88 +1,152 @@
-# TIGPO: Temporal Instance-Graph Policy Optimization for Long-Horizon LLM Agents（时序实例图策略优化：让图式信用分配跨越策略更新）
+# TIGPO: Temporal Instance-Graph Policy Optimization for Long-Horizon LLM Agents
 
-> TL;DR：本文提出 TIGPO，通过为每个任务维护跨策略更新"持久化转移图"、并以"探索–重访"调度主动让当前策略回到旧任务，再以"跨时间对比"放大 advantage 参考集合，使历史经验只影响信用分配、绝不进入策略 loss，从而在不增加每轮 rollout 预算的前提下显著提升长程 LLM agent 在 ALFWorld 与 WebShop 上的表现。
+> 一句话 TL;DR：本文提出 TIGPO，用"跨更新持久化时序实例图 + 探索–重访调度 + 跨时间对比"三条互补机制，让历史经验只影响当前轨迹的信用分配、绝不进入策略 loss，从而在不增加 rollout 预算的前提下，把图式信用分配从 batch-local 升级为 cross-update。
 
 ---
 
-## 论文档案（Metadata）
+## 1. 论文基本信息
 
 | 字段 | 内容 |
-| --- | --- |
-| 论文标题 | TIGPO: Temporal Instance-Graph Policy Optimization for Long-Horizon LLM Agents |
-| arXiv ID / DOI | arXiv:2609.03383 |
-| arXiv 链接 | https://arxiv.org/abs/2609.03383 |
-| 发表出处（Venue） | 预印本（投稿评审中，首页标注 Under review as a conference paper at ICLR 2027） |
-| 发布时间 | 2026-09-03 |
-| 作者 | Jinwei Gan（单作者） |
-| 所属机构（含国家） | 南京大学 计算机科学与技术系（Department of Computer Science, Nanjing University，中国） |
-| 开源情况 / 代码 | ❌ 未在文中声明开源 |
-| 类型标签 | RL、Online、Web、General |
-| 训练方法标签 | Online RL（图式 / 组式 credit assignment：基于 relative advantage + clipped policy objective，非标准 PPO/GRPO 的自定义联合目标） |
-| 关键词 | 持久化转移图（persistent transition graph）、跨更新信用分配、图式策略优化、Exploration–Revisit 采样、长程 LLM Agent、信用分配（credit assignment） |
-| 来源渠道 | arxiv-api |
-| PDF 存档 | 2026-09-03_TIGPO_Temporal_Instance-Graph_Policy_Optimization_for_Long-Horizon_LLM_Agents.pdf |
+|---|---|
+| **论文标题** | TIGPO: Temporal Instance-Graph Policy Optimization for Long-Horizon LLM Agents |
+| **作者 / 机构** | Jinwei Gan（单作者）；南京大学 计算机科学与技术系（中国） |
+| **发表时间 / 会议 / 期刊 / arXiv** | 2026-09-03；ICLR 2027 投稿评审中（首页标注 Under review）；arXiv preprint（cs.LG） |
+| **arXiv 链接** | https://arxiv.org/abs/2609.03383 |
+| **代码仓库** | ❌ 未开源（正文未声明开源地址） |
+| **数据集地址** | ✅ ALFWorld（https://arxiv.org/abs/2010.03768）、✅ WebShop（https://arxiv.org/abs/2207.01206），均为公开基准，无新增数据集 |
+| **类型标签（论文类别）** | `RL` `Online` `Web` `General` |
+| **训练方法标签** | `Online RL`（基于 relative advantage 的自定义 clipped policy objective，非标准 PPO/GRPO 的联合目标） |
+| **关键词** | 持久化转移图、跨更新信用分配、图式策略优化、Exploration–Revisit 采样、长程 LLM Agent、credit assignment |
+| **来源渠道** | arxiv-api |
+| **PDF 存档** | papers/2026-09-03_TIGPO_Temporal_Instance-Graph_Policy_Optimization_for_Long-Horizon_LLM_Agents.pdf |
 
 ---
 
-## 1. 研究背景与要解决的问题
+## 2. 论文要解决的核心问题
 
-长程 LLM agent 需要在多步交互中做一连串相互依赖的决策，奖励通常稀疏且延迟——往往整条轨迹结束后才知道成败。因此"把功劳分给正确动作"（credit assignment）是 LLM agent 强化学习的核心难题。PPO 靠学 critic 估计优势；GRPO 去 critic、在组内做奖励归一化得到相对优势；GiGPO 引入 episode 级与 anchor-state 级分组；GraphGPO 把同批 rollout 聚合为状态转移图，按中间状态到成功目标的最短路径距离给出 step 级信用。
-
-这些方法的共同缺陷是 **batch-local（批次局部性）**：每次策略更新只用本批轨迹建图，用后即弃。早期策略发现的优质转移片段与后期策略发现的成功收尾即使属于同一任务，只要不在同一更新批次就无法在图里连成完整通路，尤其在 rollout 组很小时，图覆盖稀疏、相对优势对单条成败轨迹极度敏感。一个直观解法是直接回放历史轨迹，但旧策略产生的动作与 log-prob 早已过时，直接进 loss 会带来 off-policy 分布失配。由此引出本文核心问题：**图式信用分配能否跨策略更新累积经验，同时保持只优化当前策略的轨迹？**
-
-## 2. 核心方法 / 思路
-
-TIGPO 围绕三个互补机制回答上述问题：
-
-**(a) 跨更新持久化实例图（Temporal Instance Graph）。** 每个任务实例 x 通过稳定身份 κ(x)（任务目标 + 初始环境配置）登记一张持久化转移图 H_x。更新时把当前 rollout 构成的图 G_x 与历史图取并集，得到时序图 Ḡ_x = H_x ∪ G_x；随后在 Ḡ_x 上重算到成功节点的最短路径距离，进而给每个"当前"转移计算时序图信用 q = C·γ^{d(s', g)}，再按同源状态归一化得到 step 级时序图优势。新发现的有效转移事后并入 H_x。关键约束：历史边只作为**结构参考**改变当前转移的信用，历史 token/动作/log-prob 一律不进策略 loss。
-
-**(b) 探索–重访调度（Exploration–Revisit Sampling）。** 光存图不保证策略会再碰到同一任务。TIGPO 把每轮固定 B 个任务组分为探索组（照常采样新任务）与重访组（在当前策略下延迟 Δ 次更新后重试之前的任务），B_E + B_R = B，**总 rollout 预算 B·K 不变**；若合格可重访任务不足，余量自动转回探索。
-
-**(c) 跨时间对比优化（Cross-Temporal Policy Optimization）。** 稀疏奖励下仅凭小组内归一化不稳定（一条成功轨迹可能主导参考）。对每个重访组，TIGPO 把它当轮的 episode 得分与"对应的早期探索组"的得分拼接（[Z_E; Z_R]），以早期分数作为**冻结参考**做归一化，得到跨时间 episode 优势，相当于与同一任务的早期策略直接比较。最终优势为 Â_TIGPO = λ_step·Â_TG + λ_ep·Â_CT（重访组）或 Â_ep（探索组），套用 clip 目标；expectation 只遍历当轮产生的轨迹。历史对 loss 的影响仅经由图连通性与参考分布两条"旁路"。
-
-## 3. 关键实验结果
-
-实验以 Qwen2.5-1.5B-Instruct 为基座，训练 250 个策略更新，每轮 64 条轨迹，评估取 3 个种子各 512 个 episode 的均值与方差；基线与 GraphGPO 在同等预算下复现。主要结果（Table 1）：
-
-- **ALFWorld**：TIGPO 综合成功率 **91.28%**，超 GiGPO（91.02%）0.26 个百分点、超 GraphGPO（89.32%）1.96 个百分点；在六个子任务中拿最优三项（Pick 98.01 / Look 89.63 / Pick2 83.43），其中 Pick2 比 GraphGPO（74.13）高出 9.30 个百分点。相较而言，提示型方法（ReAct 12.8%、Reflexion 21.8%）与小型 RL 基线（PPO 54.4%、RLOO 69.7%、GRPO 77.9%）被大幅甩开。
-- **WebShop**：TIGPO 平均任务得分 **88.65**、成功率 **77.54%**，成功率较 GiGPO（73.83）提升 3.71、较 GraphGPO（76.37）提升 1.17 个百分点。
-- **消融（ALFWorld 综合成功率）**：当前更新图基线 89.32% → +持久化图 90.69% → +探索–重访调度 89.58%（单独加反而回退，因预算被摊薄、组内优势变弱）→ 完整 TIGPO（+跨时间对比）**91.28%**。跨时间对比一项带来 +1.70 个百分点，证明它是让重访生效的关键“补丁”。
-- **诊断与开销**：TIGPO 与持久化图变体积累的任务图数量相当，但 TIGPO 的 task-memory / exact-state 命中率显著更高，说明调度确实让当前轨迹"撞上"有用历史。训练单步耗时 247.08s vs GraphGPO 258.32s（-4.35%），显存 84.31 vs 84.36 GB——作者谨慎指出 IQR 区间重叠，判定为**几乎零额外开销**。
-
-## 4. 亮点与贡献（Why it matters）
-
-- **首次把图式信用分配做成“跨更新持久化”**。它让不同策略版本发现的前缀与后缀能拼成完整成功路径，直接回应当前 batch-local 瓶颈。
-- **干净的 on-policy 设计立场**：历史经验只以"图连通结构 + 冻结统计量"两种形式存在，从不作为优化样本进入 loss，绕开了经验回放的 off-policy 失配问题，设计上有很强的原则性。
-- **调度器把“被动记忆”变成“主动存取”**：Exploration–Revisit 在**不增加预算**的前提下保证当前策略真的回到旧任务，诊断实验（命中率）也给出机制层面的实证。
-- **低成本高回报**：不新增价值网络、不改生成流程，只在 advantage 计算侧加结构与统计信息，训练时间与显存几乎无变化——这对环境交互昂贵的长程 agent 训练尤为实际。
-
-## 5. 局限与可改进点（个人点评，原创判断）
-
-- **验证规模偏窄**：单作者、1.5B 基座、仅 ALFWorld（文本具身）与 WebShop（文本 Web）两个环境；主流 web/GUI agent 基准（如 WebArena、OSWorld、Mind2Web）完全缺席，泛化性存疑。
-- **状态等价假设是软肋**：图法依赖"相同状态可合并、单一成功节点、最短路距离有意义"。真实 GUI 状态是半马尔可夫的 DOM/像素流，没有天然的状态指纹，若不解决状态抽象，该方法会水土不服。文中对 κ(x) 仅一句"环境配置相同"，未谈复杂状态空间如何判同。
-- **超参敏感且较"手工"**：探索/重访比例固定为 8:8、重访延迟固定 10 步、λ_step=λ_ep=1、折扣因子两个环境各异（0.10 vs 0.20）。消融里“只加调度不加跨时对比”就掉点（89.58 vs 89.32），说明组件间依赖与超参调法较脆。
-- **并非全面碾压**：ALFWorld 的 Heat 类 TIGPO（90.50）明显低于 GraphGPO（100.0）与 GiGPO（98.41）；"综合最优"掩盖了单类回退，值得追问是否与图合并的奖励/成功定义有关。
-- **长程扩展隐忧**：每任务持久化图随训练单调增长（图 2 显示存储实例持续攀升），训练越长内存检索越重；自适应图压缩、去重与检索仍是开放问题。
-
-## 6. 对 GUI Agent 的可借鉴点
-
-尽管本文标为 gui 域，本质是通用 agent RL 方法论，其设计对 Web/GUI agent 的 RL 训练有直接迁移价值：
-
-- **"历史拼接通路"缓解长程稀疏奖励**：GUI 任务（填表、多页下单、跨 App 操作）同样面临"早期策略找到有用中间步骤、后期才找到收尾"的问题。为每个任务/会话维护持久化页面流转图，可让旧版本的中间页与新版成功的后续点击跨更新连通，为当前动作提供密度更高的 step 级信用。
-- **落地 GUI 的关键适配是状态指纹**：需定义可判等的状态表示（DOM 归一化、accessibility tree 结构化哈希、截图 embedding 相似度），才能 merge 节点、判定"回到同一页面"，这是整套图机制能否移植的前提。
-- **Exploration–Revisit 思想适合昂贵 GUI 采样**：真实 GUI 环境采样成本高、在线任务分布杂，与其被动等相同任务再现，不如在固定预算内预留若干重访位，对新策略延迟重试历史失败/未完成的任务流；对线上用户请求亦可做成"困难任务重访缓存"。
-- **"只借信用、不借梯度"可规避 GUI 奖励噪声**：GUI reward 噪声大、每组轨迹少，用历史分数做跨时间对比比回放更稳，也不破坏 on-policy 约束，几乎零额外开销，可叠加到现有 GRPO 系 Web agent 流水线。
-- **省成本是硬卖点**：GUI agent RL 的最大瓶颈之一是环境交互昂贵；TIGPO 证明"吃历史红利"可以不增采样预算，这一取向对 GUI 域价值突出。
-
-## 7. 延伸阅读
-
-- **GraphGPO**（Cheng et al., 2026）：本文的直接前作与基线，提出 batch 内状态转移图 step 级信用分配；arXiv:2605.26684。
-- **GiGPO**（Feng et al., 2025）：episode 级 + anchor-state 级组内相对优势；arXiv:2505.10978。
-- **GRPO**（Shao et al., 2024）：无 critic 的组内相对优势，本文的组式基础；arXiv:2402.03300。
-- **ReAct**（Yao et al., 2023）：思考-行动交替的 agent 范式；arXiv:2210.03629。
-- **ALFWorld**（Shridhar et al., 2021）与 **WebShop**（Yao et al., 2022）：本文两个评测环境；arXiv:2010.03768 / arXiv:2207.01206。
-- **RLOO**（Ahmadian et al., 2024）：leave-one-out 基线的 REINFORCE 式方法，作为 RL 基线；arXiv:2402.14740。
+- **要解决什么问题**：长程 LLM agent（文本具身 ALFWorld 与 Web 购物 WebShop）在多步交互中做序列决策，奖励稀疏且延迟，**"把功劳分给正确动作"的信用分配**是核心难题。
+- **为什么重要**：信用分配不准会直接卡住下游能力——正确中间动作得不到正反馈、被稀疏失败信号淹没，agent 学不出可靠的长程策略；这是 LLM agent RL 能否 scale 到真实任务的关键瓶颈。
+- **现有方法有什么不足**：作者点名批评的范式及其结构性缺陷——
+  - PPO 依赖学 critic 估优势，引入额外价值网络；
+  - GRPO 无 critic、组内归一化，但只有 trajectory 级粗糙信号；
+  - GiGPO 加入 episode 级 + anchor-state 级分组，仍受限于组内统计；
+  - GraphGPO 把同批 rollout 聚合为状态转移图、按最短路距离给 step 级信用，是当前最强基线——但**所有这些都是 batch-local 的**：每轮更新只用本批轨迹建图，用后即弃。
+- **Research Gap**：早期策略发现的"有用前缀"与后期策略发现的"成功后缀"即使属于同一任务，只要不在同一更新批次，就无法在图里连通成完整通路；尤其在小 rollout 组下，图覆盖稀疏、相对优势对单条成败轨迹极度敏感。作者给出的 central question 是：**图式信用分配能否跨策略更新累积经验，同时仍只在当前策略轨迹上做优化？**（直接回放历史会引入 off-policy 分布失配，故被排除。）
 
 ---
 
-*解读生成时间：2026-09-07 ｜ 解读人：WorkBuddy（AI）*
+## 3. 方法核心思想（三层拆解）
+
+### 3.1 一句话概括方法
+
+为每个任务维护一张**跨更新持久化的状态转移图**，用历史图给当前轨迹"重算最短路信用"；再用固定预算内的"探索–重访"调度主动回到旧任务，并借"跨时间对比"稳定小样本下的优势估计——历史只改信用、不接梯度。
+
+### 3.2 方法总览（Pipeline）
+
+- **输入**：任务实例 x（含目标 + 初始环境配置）；**输出**：当前策略轨迹的 step 级 + episode 级优势，用于 clipped policy loss。
+- **三个模块**：
+  1. **时序实例图（Temporal Instance Graph）**：以稳定身份 κ(x) 索引每个任务的持久图 H_x；更新时与当前图 G_x 取并集 Ḡ_x = H_x ∪ G_x，重算最短路径距离得到时序图信用。
+  2. **探索–重访调度（Exploration–Revisit Sampling）**：把固定 B 个任务组拆为 B_E（探索新任务）+ B_R（延迟 Δ 步重访旧任务），保证当前策略真的回到旧任务。
+  3. **跨时间对比（Cross-Temporal Optimization）**：把重访组的当轮分数与对应早期探索组分数拼接 [Z_E; Z_R] 做归一化，得到跨时间 episode 优势。
+- **连接方式**：图与对比统计共同给出联合优势 Â_TIGPO = λ_step·Â_TG + λ_ep·(Â_ep / Â_CT)，仅对当轮新生成轨迹取期望优化；历史经验经由"图连通结构"和"冻结参考分布"两条旁路影响 loss。
+
+### 3.3 真正的创新点（去伪存真）
+
+- **真·方法创新**：① 把图式信用分配从"每轮建图"改为"跨更新持久化 + 并集重算最短路"（公式 Ḡ_x = H_x ∪ G_x、q^TG = C·γ^{d(s',g)}）；② 用"早期分数作为冻结参考"构造跨时间对比优势，而非直接回放。这是前人没有的两点。
+- **工程组合**：探索–重访调度本质是"预算重分配 + 延迟重试"，本身非新概念，但被巧妙地塞进固定预算、不增采样成本；GRPO 归一化、GraphGPO 建图、PPO clip 目标均为既有组件。
+- **对性能提升最关键的设计**：ablation 表明**跨时间对比是让整套机制生效的"补丁"**——只加调度不加对比反而掉点（89.58 vs 90.69），加上对比后回到 91.28（+1.70）；持久化图本身贡献 +1.37（89.32→90.69）。
+- **证据不足 / 仅声称有效**：作者强调"几乎零额外开销"，但 IQR 区间大面积重叠，只能判为"相当"而非真加速；κ(x) 只定义到"目标 + 初始配置"，复杂状态空间如何判同未给出可复现方案。
+
+---
+
+## 4. 具体技术细节
+
+### 4.1 模型结构
+
+- **Base model**：Qwen2.5-1.5B-Instruct，**纯文本 LLM（不含视觉编码器）**，1.5B 参数，全量微调（非冻结、非 LoRA，未说明冻结层）。
+- 上下文只保留最近两个交互步（two most recent interaction steps）；模型在 `<think>` 标签内生成推理、在 `<action>` 标签内生成动作。
+
+### 4.2 训练流程
+
+| 阶段 | 目标 | 训练什么能力 | 数据来源 | 数据形态 | 训练目标 / Loss |
+|---|---|---|---|---|---|
+| Stage 1（唯一训练阶段，250 步在线 RL） | 训练长程决策策略 | step 级 + episode 级信用分配下的动作选择 | 在线 rollout（每轮 64 条当前策略轨迹） | 任务组内 K 条 rollout 的状态-动作转移 + episode 得分 | 见下 |
+
+**temporal instance-graph 是重点**，训练 loss 的三个来源：
+
+1. **时序图信用（step 级）**：每任务维护 H_x，当前更新取 Ḡ_x^(k) = H_x^(k−1) ∪ G_x^(k)（式 4）；在 Ḡ 上重算到成功节点 g_x 的最短路，给每个**当前**转移 s→s′ 赋信用 `q^TG_{i,t} = C·γ^{d_{Ḡ_x}(s_{i,t+1}, g_x)}`（式 5，用后继态距离；γ 为距离折扣，ALFWorld=0.10、WebShop=0.20）；对同源状态的当前转移做归一化得时序图优势 Â^TG。**关键约束：历史边只作结构参考，历史 token/动作/log-prob 一律不进 loss；更新后把新发现的合法转移并入 H_x。**
+
+2. **跨时间 episode 优势**：重访组当轮分数 z^R 与早期探索组分数 Z^E 拼接，Â^CT_{i,t} = Norm(z^R_{i,t}; [Z^E_x; Z^R_x])（式 7），早期分数作为冻结参考；探索组保留组内 episode 优势 Â^ep。
+
+3. **联合目标**：Â_TIGPO = λ_step·Â_TG + λ_ep·(探索组用 Â^ep / 重访组用 Â^CT)（式 8），λ_step=λ_ep=1；套用 clipped PPO 目标 `L = −E_{(i,t)∼B(k)}[min(ρ·Â, clip(ρ,1−ε,1+ε)·Â)]`（式 9），expectation 只遍历当轮轨迹。
+
+**超参与实现**：250 次策略更新；actor LR=1×10⁻⁶，KL 系数=0.01，rollout 温度 1.0、评估温度 0.4；成功 reward=10、非法动作 −0.1；GraphGPO 用 8 组×8 轨迹、TIGPO 用 16 组×4 轨迹（8 探索 + 8 重访）；重访延迟 Δ=10 步，合格任务不足时余量自动转回探索。
+
+### 4.3 推理流程
+
+- 用训练 250 步后的 checkpoint，**多步推理**：ReAct 风格"思考-行动"交替（`<think>`/`<action>`），在环境中逐步交互直至终止或达成目标；评估取 3 个种子（123/456/789）各 512 episode 的均值与方差。
+
+---
+
+## 5. Benchmark 与实验设置
+
+### 5.1 Benchmark 一览表
+
+| Benchmark | GUI 场景 | 任务类型 | 数据规模 | 输入格式 | 输出格式 | 评测指标 |
+|---|---|---|---|---|---|---|
+| ALFWorld | General（文本具身） | 长程规划/决策 | 3,827 个任务实例，6 类（Pick/Clean/Cool/Look/Heat/Pick2） | 纯文本观察 | 文本动作 | 成功率（分任务 + 综合） |
+| WebShop | Web | 搜索-选购-下单端到端 | 文本丰富环境（官方 text-rich，规模未注明） | 纯文本 | 文本动作 | 平均任务得分 + 成功率 |
+
+### 5.2 实验结果分析
+
+**主结果（Table 1）**：在相同 rollout 预算下，TIGPO 两环境综合最优。
+- **ALFWorld 综合成功率 91.28%**，超 GiGPO（91.02%）0.26 点、超 GraphGPO（89.32%）1.96 点；六个子任务中拿最优三项（Pick 98.01 / Look 89.63 / Pick2 83.43），其中 Look 超 GraphGPO 3.34 点、Pick2 超 9.30 点（GraphGPO 仅 74.13）。提示型与小型 RL 基线被大幅甩开：ReAct 12.8%、Reflexion 21.8%、PPO 54.4%、RLOO 69.7%、GRPO 77.86%。
+- **WebShop**：TIGPO 平均得分 88.65、成功率 77.54%；成功率较 GiGPO（73.83）升 3.71 点、较 GraphGPO（76.37）升 1.17 点。
+- 注意：GraphGPO 在 Heat 类拿满 100.0，GiGPO 98.41，TIGPO 仅 90.50——"综合最优"掩盖了单类回退。
+
+**Ablation（Table 2，ALFWorld 综合成功率）**：当前更新图基线 89.32 → +持久化图 90.69（+1.37）→ +探索–重访调度 89.58（单独加反而回退，因预算被摊薄、组内优势变弱）→ 完整 TIGPO 91.28（跨时间对比 +1.70）。说明**持久化图与跨时间对比互补**：前者存结构、后者给更 informative 的参考。
+
+**诊断与开销**：TIGPO 与"纯持久化图"变体积累的任务实例数相当，但 TIGPO 的 task-memory 与 exact-state 命中率显著更高，证明调度确实让当前轨迹"撞上"有用历史。效率上 TIGPO 单步 247.08s vs GraphGPO 258.32s（−4.35%）、GPU 显存 84.31 vs 84.36 GB（−0.06%），作者因 IQR 重叠谨慎判定为**几乎零额外开销**。
+
+---
+
+## 6. 亮点与贡献（Why it matters）
+
+- **首次把图式信用分配做成"跨更新持久化"**：让不同策略版本发现的前缀/后缀拼成完整成功路径，正面回应 batch-local 瓶颈，是概念层的真进步。
+- **干净的 on-policy 设计立场**：历史只以"图连通结构 + 冻结统计量"两种形式存在，从不作为优化样本进 loss，绕开经验回放的 off-policy 失配——原则性强，可被后续工作当作模板。
+- **不增预算的"主动存取"**：Exploration–Revisit 在固定 rollout 预算内保证当前策略回到旧任务，诊断实验（命中率）给出机制层面实证，而非仅凭结果反推。
+- **低成本高回报**：不新增价值网络、不改生成流程，只在 advantage 计算侧加结构与统计，训练时间与显存几乎无变化，对交互昂贵的长程 agent 训练极为实用。
+
+---
+
+## 7. 局限与可改进点（个人点评）
+
+- **验证规模偏窄**：单作者、1.5B 基座、仅 ALFWorld 与 WebShop 两个文本环境，主流 GUI 基准（WebArena、OSWorld、Mind2Web）缺席，泛化性未证。
+- **状态等价假设是软肋**：整套图法依赖"相同状态可合并、单一成功节点、最短路距离有意义"。真实 GUI 状态是半马尔可夫的 DOM/像素流，没有天然状态指纹；文中对 κ(x) 仅一句"目标 + 初始配置"，未谈复杂状态如何判同，移植 GUI 前必须先解决状态抽象。
+- **超参脆弱且手工味重**：探索/重访 8:8、延迟 Δ=10、λ_step=λ_ep=1、两个环境折扣各异；消融中"只加调度"就掉点，说明组件间耦合与调参敏感。
+- **并非全面碾压**：Heat 类 TIGPO（90.50）明显弱于 GraphGPO（100.0）/GiGPO（98.41），"综合最优"掩盖了单类回退，值得追问是否与图合并的奖励/成功定义有关。
+- **长程扩展隐忧**：每任务持久化图随训练单调增长，训练越长内存检索越重；自适应图压缩、去重与检索是未解决的开问题。
+
+---
+
+## 8. 对我们的启示 / 可借鉴点
+
+- **"历史拼接通路"缓解长程稀疏奖励**：GUI 任务（多页下单、跨 App 操作）同样面临"早期找到有用中间步、后期才找到收尾"的问题；为每任务/会话维护持久化页面流转图，可让旧中间页与新成功后续跨更新连通，为当前动作提供更密 step 级信用。
+- **落地 GUI 的关键适配是状态指纹**：需定义可判等的状态表示（DOM 归一化、accessibility tree 结构化哈希、截图 embedding 相似度）才能 merge 节点、判定"回到同一页面"——这是整套机制能否移植的前提。
+- **Exploration–Revisit 思想适合昂贵 GUI 采样**：与其被动等相同任务再现，不如在固定预算内预留若干重访位，对新策略延迟重试历史失败/未完成任务流，也可做成"困难任务重访缓存"。
+- **"只借信用、不借梯度"可规避 GUI 奖励噪声**：GUI reward 噪声大、每组轨迹少，用历史分数做跨时间对比比回放更稳，且不破坏 on-policy 约束、几乎零开销，可叠加到现有 GRPO 系 Web agent 流水线。
+
+---
+
+## 9. 延伸阅读
+
+- **GraphGPO**（Cheng et al., ICML 2026）：本文直接前作与最强基线，batch 内状态转移图 step 级信用；arXiv:2605.26684。
+- **GiGPO**（Feng et al., NeurIPS 2025）：episode 级 + anchor-state 级组内相对优势；arXiv:2505.10978。
+- **GRPO**（Shao et al., 2024）：无 critic 组内相对优势，本文的组式基础；arXiv:2402.03300。
+- **RLOO**（Ahmadian et al., 2024）：leave-one-out 基线的 REINFORCE 式方法；arXiv:2402.14740。
+- **ReAct**（Yao et al., 2023）：思考-行动交替范式；arXiv:2210.03629；**Reflexion**（Shinn et al., 2023）：口头反馈自省；arXiv:2303.11366。
+- **ALFWorld**（Shridhar et al., 2021）/ **WebShop**（Yao et al., 2022）：本文两个评测环境；arXiv:2010.03768 / arXiv:2207.01206。
+
+---
+
+*解读生成时间：2026-09-10 ｜ 解读人：WorkBuddy（AI）*
