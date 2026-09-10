@@ -14,6 +14,7 @@
 | 2026-09-07 | [📖 当日速览](2026-09-07/) | 4 篇 | 主题一句话：**"RL 方法论补漏"专题（周一无新公告，二次补漏）**——把 RL 训练目标改成"稀有高分导向"（TailRL）、让 agent 学会"少决策多执行"的动作分块（SPACE）、让图式信用分配跨策略更新累积经验（TIGPO）、以及给自改进 agent 上"确定性护栏"防 LLM 裁判被优化器钻空子（PROCTOR）。前三篇延续 09-06 GRPO 系列，都是 RL 训练侧的"手术刀式"改进；第四篇是评估护栏视角。 |
 | 2026-09-08 | [📖 当日速览](2026-09-08/) | 12 篇 | 主题一句话：**"技能沉淀与混合界面"爆发日**——GUI 域迎来混合 GUI+CLI 环境全流程配方（CUA-Universe）、computer-use 在线技能演化（Interaction Traces）、老年用户真实表达评测（ElderBench）与车载 GUI 自动测试（ARIA）；Agent 方法论域 8 篇围绕"轨迹→技能/图→策略协同进化"（CoSkill/Trace2Tower/TROVE）、蒸馏防漂移（RISE/Persistent Teacher）与 RL 训练配方实证（SiLR/Multi-Harness RL）展开，另收一篇 Agentic AI 全景综述（World-Acting Systems）。 |
 | 2026-09-09 | [📖 当日速览](2026-09-09/) | 15 篇 | 主题一句话：**"评测自动化"信号明确**——GUI 域 3 篇中 2 篇直击评测可复现/自动构建（APPSim-Bench 把真实 App 搬进可控沙盒、FinCUABuild 让 agent 自主造金融 CUA 评测任务），1 篇用自生成工具动作增强 GUI 执行（DroidTool）；Agent 方法论域双线并行——RL 训练"配方级"实证（SRPO 集合动作 RL、Elastic Horizon 自适应交互预算、Env-Scaffold 环境反馈加料、SVRL RL 自验证）与"经验→可复用资产"的自演化/对齐（SkillAdam、Procedural Graphs、Co-Evolving Harnesses、SkillAlign），另收长轨迹上下文工程（AttnCompress/MEMO）、风险感知评测（AURA-Eval）与 test-time 世界模型适应（WorldAgen）。 |
+| 2026-09-10 | [📖 当日速览](2026-09-10/) | 15 篇 | 主题一句话：**GUI 域回到"持续学习 + 知识资产"主线**——SKC 用神经元级梯度手术让 GUI Agent 在应用流上不遗忘地持续进化，Typed Federated Artifacts 探索冻结异构 agent 间的工具路由知识共享，SafeMem 用长期图记忆补上"离开视野的危险物"这一安全盲区，SciFigure2Code 把科研图逆向重建为可编辑代码评测；**Agent 方法论域则集中在"把经验/结构变成可复用资产"与"多智能体规模化"两条线**——技能图自演化（SE-GoS）、递归自改进后训练（NeoHorse-1）、场景化记忆（CreaMem）、轨迹数据库愿景（TrajectoryDB）、长时程世界模型闭环（Hi-FLoop）、多智能体前景状态传播与子队分解（PspMAS/RCSD）、长时程决策再验证（ATR）、长上下文并行阅读（PARSER）与忠实引用（ReCite）。 |
 
 ---
 
