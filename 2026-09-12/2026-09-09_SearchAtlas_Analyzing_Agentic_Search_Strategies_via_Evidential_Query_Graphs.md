@@ -12,8 +12,8 @@
 | **作者 / 机构** | Jiacheng Sang\*、Mengyuan Li\*、Sanxing Chen、Yukun Huang、Yu Feng、Bhuwan Dhingra（\*同等贡献）。机构：Duke University、University of Pennsylvania（美国） |
 | **发表时间 / 会议 / 期刊 / arXiv** | 2026-09-09；Findings of EMNLP 2026（原文 txt 未打印 venue 行，按任务元数据） |
 | **arXiv 链接** | https://arxiv.org/abs/2609.10901 |
-| **代码仓库** | ✅ GitHub：https://github.com/DukeNLP/SearchAtlas（脚注 1："Code and data are available at"） |
-| **数据集地址** | ✅ 代码与数据同仓库 https://github.com/DukeNLP/SearchAtlas ；实验使用公开 benchmark：BrowseComp、WebWalker-Hard-English、DeepSearchQA（含题目 ID 与筛选细节见附录 A.9） |
+| **代码仓库** | ⚠️ 论文脚注 1 声明 "Code and data are available at https://github.com/DukeNLP/SearchAtlas"（经 PDF 链接注解核实确为原文地址），但**该地址截至 2026-09-12 返回 404**，疑为尚未公开 |
+| **数据集地址** | ⚠️ 论文称代码与数据同仓库（https://github.com/DukeNLP/SearchAtlas，当前 404）；实验使用公开 benchmark：BrowseComp、WebWalker-Hard-English、DeepSearchQA（含题目 ID 与筛选细节见附录 A.9） |
 | **类型标签（论文类别）** | `Planning` `Reflection` `Benchmark` `General` |
 | **训练方法标签** | `—（分析框架/评测，不训练）` |
 | **关键词** | search agents；evidence dependency DAG；process diagnostics；trajectory interpretability；constraint grounding；prior-knowledge reliance |

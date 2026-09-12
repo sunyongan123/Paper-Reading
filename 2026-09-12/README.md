@@ -116,7 +116,7 @@
 - 标签：`Planning` `Reflection` `Benchmark` `General` ｜ 训练方法：`—（分析框架/评测，不训练）`
 - 域标注：**Agent 方法论 · 跨域参考**
 - 一句话结论：搜索 agent 常只按最终答案评分，而"证据如何被检索、如何支撑约束"全埋在长轨迹里；SearchAtlas 把轨迹转成查询间证据依赖 DAG（边由可归因证据门控），自动解析流水线对人标注图的边级 F1 均值 86.0%，并在 5 个搜索 agent × 3 个 benchmark 上暴露"答案支撑碎片化""约束传不到答案"等系统性缺陷。
-- [arXiv](https://arxiv.org/abs/2609.10901) ｜ 代码：✅ [DukeNLP/SearchAtlas](https://github.com/DukeNLP/SearchAtlas)
+- [arXiv](https://arxiv.org/abs/2609.10901) ｜ 代码：⚠️ 论文声明 [DukeNLP/SearchAtlas](https://github.com/DukeNLP/SearchAtlas)（截至 2026-09-12 返回 404，疑未公开）
 - **[阅读完整解读](./2026-09-09_SearchAtlas_Analyzing_Agentic_Search_Strategies_via_Evidential_Query_Graphs.md)**
 
 ### Agent-Integrated Software：用"交互契约"约束被委派的任务
@@ -148,7 +148,7 @@
 3. **训练-推理不一致被当作一等公民问题**：T1 用 TITO（token 级 bit-exact 拼接）与 R3（MoE 专家路由重放）把训练与推理的 log-prob 差从 0.021 压到 0.013，并明确报告 GRPO 在自己的设置下两步平盘。**"RL 跑不起来"往往不是算法问题而是采样-训练失配**，这一诊断对任何做 GUI Agent RL 的团队都有直接价值。
 4. **评测可信度从"改分数"升级到"改基础设施"**：BenchShield 用形式化模型 + 污点分析在运行前就暴露奖励黑客路径；ChurnBench 把 freshness error 单列为一类错误。二者共同指向——**benchmark 本身正在成为需要被验证的系统**。
 5. **安全侧焦点从"被攻击"转向"自发越界"**：The Missing Boundary 证明越界可以在任务正当、合规路径可行的前提下静默发生；DriftNet 则提供逐步归因的取证工具。对 GUI Agent 意味着：**"约束退化 + 一个可执行的危险动作"就是真实风险条件**，而不只是对抗攻击。
-6. **开源率明显改善**：15 篇中 5 篇给出可访问仓库（terms.txt、Ecdysis、COBRA-Skills、When Synthetic Data Hurts、ChurnBench、SearchAtlas —— 共 6 个可访问链接），另有 3 篇为"将公开/匿名/部分"表述，6 篇未开源。
+6. **开源率明显改善**：15 篇中 **5 篇给出可访问仓库**（terms.txt、Ecdysis、COBRA-Skills、When Synthetic Data Hurts、ChurnBench），另有 1 篇（SearchAtlas）论文声明的仓库当前 404、2 篇为"将公开/仅配套仓库"表述，7 篇未开源。较此前批次（15 篇中仅 3 篇）明显改善。
 
 ---
 *速览生成时间：2026-09-12 ｜ 本日 API 不可用，采用 listing 公告组 + abs 页面兜底通道*
